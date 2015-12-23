@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -26,7 +25,6 @@ var (
 	client        discord.Client
 	startTime     time.Time
 	commands      map[string]Command
-	games         map[string]discord.Game
 	totalCommands int
 
 	counter  *GametimeCounter
@@ -39,31 +37,9 @@ type Command struct {
 	Handler func(discord.Message, ...string)
 }
 
-func getGameByName(gameName string) (res discord.Game, err error) {
-	found := false
-	lowerGameName := strings.ToLower(gameName)
-	for _, game := range games {
-		if strings.ToLower(game.Name) == lowerGameName {
-			res = game
-			found = true
-		}
-	}
-	if !found {
-		err = errors.New("game not found")
-	}
-	return res, err
-}
-
 func onReady(ready discord.Ready) {
 	startTime = time.Now()
 	totalCommands = 0
-
-	// Init game list
-	var err error
-	games, err = discord.GetGamesFromFile("games.json")
-	if err != nil {
-		log.Print("err: Failed to load games")
-	}
 
 	// Start listening for gametimes from presences
 	go counter.Listen()
@@ -100,16 +76,15 @@ func messageReceived(message discord.Message) {
 
 func gameStarted(presence discord.Presence) {
 	user := presence.GetUser(&client)
-	game, gameExists := games[string(presence.GameID)]
 	pUser, isPlaying := counter.InProgress[user.ID]
 
-	if isPlaying && !gameExists {
+	if isPlaying && presence.Game.Name != "" {
 		counter.GametimeChan <- pUser
-	} else if isPlaying && gameExists {
+	} else if isPlaying && presence.Game.Name == "" {
 		// User may be in more than one server with this instance of gobot
 		return
-	} else if !isPlaying && gameExists {
-		counter.StartGametime(user, game)
+	} else if !isPlaying && presence.Game.Name != "" {
+		counter.StartGametime(user, presence.Game)
 	}
 }
 
@@ -238,20 +213,7 @@ func reminderCommand(message discord.Message, args ...string) {
 }
 
 func sourceCommand(message discord.Message, args ...string) {
-	client.SendMessage(message.ChannelID, "Here you go! <https://github.com/gdraynz/go-discord>")
-}
-
-func voiceCommand(message discord.Message, args ...string) {
-	if message.Author.Name != "steelou" {
-		client.SendMessage(message.ChannelID, "Nah.")
-		return
-	}
-
-	server := message.GetServer(&client)
-	voiceChannel := client.GetChannel(server, "General")
-	if err := client.SendAudio(voiceChannel, "Blue.mp3"); err != nil {
-		log.Print(err)
-	}
+	client.SendMessage(message.ChannelID, "Here you go! <https://github.com/gdraynz/gobot>")
 }
 
 func playedCommand(message discord.Message, args ...string) {
@@ -263,10 +225,10 @@ func playedCommand(message discord.Message, args ...string) {
 			pString = "I don't remember you playing anything I know :("
 		} else {
 			pString = "As far as I'm aware, you played:\n"
-			for id, gametime := range userMap {
+			for name, gametime := range userMap {
 				pString += fmt.Sprintf(
-					"`%s` %s\n",
-					games[id].Name,
+					"`%s : %s`\n",
+					name,
 					getDurationString(time.Duration(gametime)),
 				)
 			}
@@ -277,33 +239,13 @@ func playedCommand(message discord.Message, args ...string) {
 		} else {
 			pString = "Pew! Everything gone!"
 		}
-	// } else if len(args)-1 == 2 && args[2] == "server" {
-	// 	gameMap, err := counter.ServerGametime(message.GetServer(&client))
-	// 	if err != nil {
-	// 		log.Print(err)
-	// 		pString = "I don't remember this server playing anything I know :("
-	// 	} else {
-	// 		pString = "This server played:\n"
-	// 		for id, gametime := range gameMap {
-	// 			pString += fmt.Sprintf(
-	// 				"`%s` %s\n",
-	// 				games[id].Name,
-	// 				getDurationString(time.Duration(gametime)),
-	// 			)
-	// 		}
-	// 	}
 	} else if len(args)-1 >= 3 {
 		gameName := strings.Join(args[3:], " ")
-		log.Printf("resetting '%s'", gameName)
-		game, err := getGameByName(gameName)
-		if err != nil {
-			pString = "I don't know that game :("
+		log.Printf("Trying to reset '%s'", gameName)
+		if err := counter.ResetOneGametime(message.Author, gameName); err != nil {
+			pString = "Did you ever played that game ?"
 		} else {
-			if err := counter.ResetOneGametime(message.Author, game); err != nil {
-				pString = "Did you ever played that game ?"
-			} else {
-				pString = fmt.Sprintf("Pew! Game time for %s resetted!", game.Name)
-			}
+			pString = fmt.Sprintf("Pew! Game time for `%s` resetted!", gameName)
 		}
 	} else {
 		pString = errorMessage

@@ -15,15 +15,14 @@ var (
 	gametimeFlagDB = flag.String("gametimedb", "gametime.db", "DB file for game time")
 )
 
-// TODO: migrate that in seconds...
 // "<user id>": {
-//		"<game id>": "<time in nanoseconds>"
+//		"<game name>": "<time in seconds>"
 // }
 
 type PlayingUser struct {
 	UserID    string
 	StartTime time.Time
-	GameID    string
+	Game      string
 }
 
 func (p *PlayingUser) SaveGametime(t *bolt.Tx) error {
@@ -31,27 +30,27 @@ func (p *PlayingUser) SaveGametime(t *bolt.Tx) error {
 	if err != nil {
 		return err
 	}
-	bPlayed := b.Get([]byte(p.GameID))
+	bPlayed := b.Get([]byte(p.Game))
 	if bPlayed != nil {
 		// bytes to int64
 		played, _ := binary.Varint(bPlayed)
 
 		// Calc total time
-		total := time.Now().Add(time.Duration(played))
+		total := time.Now().Add(time.Duration(played) * time.Second)
 
 		// int64 to bytes
 		newPlayed := make([]byte, binary.MaxVarintLen64)
-		binary.PutVarint(newPlayed, total.Sub(p.StartTime).Nanoseconds())
+		binary.PutVarint(newPlayed, int64(total.Sub(p.StartTime).Seconds()))
 
-		if err := b.Put([]byte(p.GameID), newPlayed); err != nil {
+		if err := b.Put([]byte(p.Game), newPlayed); err != nil {
 			return err
 		}
 	} else {
 		// int64 to bytes
 		newPlayed := make([]byte, binary.MaxVarintLen64)
-		binary.PutVarint(newPlayed, time.Since(p.StartTime).Nanoseconds())
+		binary.PutVarint(newPlayed, int64(time.Since(p.StartTime).Seconds()))
 
-		if err := b.Put([]byte(p.GameID), newPlayed); err != nil {
+		if err := b.Put([]byte(p.Game), newPlayed); err != nil {
 			return err
 		}
 	}
@@ -93,7 +92,7 @@ func (counter *GametimeCounter) StartGametime(user discord.User, game discord.Ga
 
 	pUser := PlayingUser{
 		UserID:    user.ID,
-		GameID:    string(game.ID),
+		Game:      game.Name,
 		StartTime: time.Now(),
 	}
 
@@ -112,34 +111,9 @@ func (counter *GametimeCounter) EndGametime(pUser PlayingUser) {
 
 	if err != nil {
 		log.Printf("Error while updating game time : %s", err.Error())
+	} else {
+		log.Printf("Saved %s", pUser.UserID)
 	}
-
-	log.Printf("Saved %s", pUser.UserID)
-}
-
-func (counter *GametimeCounter) ServerGametime(server discord.Server) (map[string]int64, error) {
-	gameMap := make(map[string]int64)
-	err := counter.DB.View(func(t *bolt.Tx) error {
-		for _, member := range server.Members {
-			b := t.Bucket([]byte(member.User.ID))
-			if b == nil {
-				continue
-			}
-			// Iterate through all games
-			b.ForEach(func(gameID []byte, nanoTime []byte) error {
-				_, ok := gameMap[string(gameID[:])]
-				if ok {
-					add, _ := binary.Varint(nanoTime)
-					gameMap[string(gameID[:])] += add
-				} else {
-					gameMap[string(gameID[:])], _ = binary.Varint(nanoTime)
-				}
-				return nil
-			})
-		}
-		return nil
-	})
-	return gameMap, err
 }
 
 func (counter *GametimeCounter) ResetGametime(user discord.User) error {
@@ -148,7 +122,7 @@ func (counter *GametimeCounter) ResetGametime(user discord.User) error {
 	})
 }
 
-func (counter *GametimeCounter) ResetOneGametime(user discord.User, game discord.Game) error {
+func (counter *GametimeCounter) ResetOneGametime(user discord.User, gameName string) error {
 	return counter.DB.Update(func(t *bolt.Tx) error {
 		b := t.Bucket([]byte(user.ID))
 		if b == nil {
@@ -158,7 +132,7 @@ func (counter *GametimeCounter) ResetOneGametime(user discord.User, game discord
 		if b.Stats().KeyN == 1 {
 			return t.DeleteBucket([]byte(user.ID))
 		}
-		return b.Delete([]byte(string(game.ID)))
+		return b.Delete([]byte(gameName))
 	})
 }
 
@@ -170,8 +144,8 @@ func (counter *GametimeCounter) GetUserGametime(user discord.User) (map[string]i
 			return errors.New("user never played")
 		}
 		// Iterate through all games
-		b.ForEach(func(gameID []byte, nanoTime []byte) error {
-			gameMap[string(gameID[:])], _ = binary.Varint(nanoTime)
+		b.ForEach(func(game []byte, gametime []byte) error {
+			gameMap[string(game[:])], _ = binary.Varint(gametime)
 			return nil
 		})
 		return nil
@@ -188,7 +162,7 @@ func (counter *GametimeCounter) Snapshot() error {
 				continue
 			}
 		}
-		log.Print("Snapshot done")
+		log.Print("Gametime snapshot done")
 		return nil
 	})
 }
