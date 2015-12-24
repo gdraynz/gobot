@@ -51,6 +51,10 @@ func onReady(ready discord.Ready) {
 		}
 	}
 
+	if err := client.SendPresence("the stalking game"); err != nil {
+		log.Fatal(err)
+	}
+
 	log.Print("Everything set up")
 }
 
@@ -379,8 +383,6 @@ func main() {
 	if err := client.LoginFromFile(*flagConf); err != nil {
 		log.Fatal(err)
 	}
-
-	// log.Print(client.GetPrivateChannel(client.User))
 
 	client.Run()
 }
