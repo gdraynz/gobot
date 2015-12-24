@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"regexp"
 	"runtime"
 	"strings"
 	"syscall"
@@ -59,6 +60,21 @@ func onReady(ready discord.Ready) {
 }
 
 func messageReceived(message discord.Message) {
+	_, isPrivate := client.PrivateChannels[message.ChannelID]
+	if isPrivate {
+		re := regexp.MustCompile(`^https:\/\/discord.gg\/(?P<inviteID>[\w]{16})$`)
+		results := re.FindAllStringSubmatch(message.Content, -1)
+
+		if len(results) != 0 {
+			if err := client.JoinServer(results[0][1]); err != nil {
+				log.Print(err)
+				client.SendMessage(message.ChannelID, errorMessage)
+			} else {
+				client.SendMessage(message.ChannelID, "Server joined, thanks :)")
+			}
+		}
+	}
+
 	if !strings.HasPrefix(message.Content, "!go") {
 		return
 	}
