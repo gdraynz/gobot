@@ -16,7 +16,7 @@ var (
 )
 
 // "<user id>": {
-//		"<game name>": "<time in seconds>"
+//		"<game name>": "<time in nanoseconds>"
 // }
 
 type PlayingUser struct {
@@ -36,11 +36,11 @@ func (p *PlayingUser) SaveGametime(t *bolt.Tx) error {
 		played, _ := binary.Varint(bPlayed)
 
 		// Calc total time
-		total := time.Now().Add(time.Duration(played) * time.Second)
+		total := time.Now().Add(time.Duration(played))
 
 		// int64 to bytes
 		newPlayed := make([]byte, binary.MaxVarintLen64)
-		binary.PutVarint(newPlayed, int64(total.Sub(p.StartTime).Seconds()))
+		binary.PutVarint(newPlayed, int64(total.Sub(p.StartTime).Nanoseconds()))
 
 		if err := b.Put([]byte(p.Game), newPlayed); err != nil {
 			return err
@@ -48,7 +48,7 @@ func (p *PlayingUser) SaveGametime(t *bolt.Tx) error {
 	} else {
 		// int64 to bytes
 		newPlayed := make([]byte, binary.MaxVarintLen64)
-		binary.PutVarint(newPlayed, int64(time.Since(p.StartTime).Seconds()))
+		binary.PutVarint(newPlayed, int64(time.Since(p.StartTime).Nanoseconds()))
 
 		if err := b.Put([]byte(p.Game), newPlayed); err != nil {
 			return err
@@ -88,8 +88,6 @@ func (counter *GametimeCounter) Listen() {
 }
 
 func (counter *GametimeCounter) StartGametime(user discord.User, game discord.Game) {
-	log.Printf("Starting to count for %s on %s", user.Name, game.Name)
-
 	pUser := PlayingUser{
 		UserID:    user.ID,
 		Game:      game.Name,
@@ -97,6 +95,7 @@ func (counter *GametimeCounter) StartGametime(user discord.User, game discord.Ga
 	}
 
 	counter.InProgress[user.ID] = pUser
+	log.Printf("in progress: %s (%s) on %s", user.Name, user.ID, game.Name)
 }
 
 func (counter *GametimeCounter) EndGametime(pUser PlayingUser) {

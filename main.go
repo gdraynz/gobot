@@ -52,7 +52,7 @@ func onReady(ready discord.Ready) {
 		}
 	}
 
-	if err := client.SendPresence("the stalking game"); err != nil {
+	if err := client.SendPresence("nothing fancy :)"); err != nil {
 		log.Fatal(err)
 	}
 
@@ -98,9 +98,9 @@ func gameStarted(presence discord.Presence) {
 	user := presence.GetUser(&client)
 	pUser, isPlaying := counter.InProgress[user.ID]
 
-	if isPlaying && presence.Game.Name != "" {
+	if isPlaying && presence.Game.Name == "" {
 		counter.GametimeChan <- pUser
-	} else if isPlaying && pUser.Game == presence.Game.Name {
+	} else if isPlaying && (pUser.Game == presence.Game.Name) {
 		// User may be in more than one server with this instance of gobot
 		return
 	} else if !isPlaying && presence.Game.Name != "" {
@@ -249,8 +249,7 @@ func playedCommand(message discord.Message, args ...string) {
 				pString += fmt.Sprintf(
 					"`%s : %s`\n",
 					name,
-					// TODO: Quick fix for duration... int64 * time.Second
-					getDurationString(time.Duration(gametime*1000*1000*1000)),
+					getDurationString(time.Duration(gametime)),
 				)
 			}
 		}
